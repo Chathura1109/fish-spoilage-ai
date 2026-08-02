@@ -1,0 +1,111 @@
+{
+  "model_version": "spoilage-v1",
+  "trained_at_utc": "2026-08-02T17:43:51.061754+00:00",
+  "dataset_is_synthetic": true,
+  "decision_support_only": true,
+  "data_audit": {
+    "rows_loaded": 2000,
+    "invalid_row_reasons": {
+      "missing_or_unknown_target": 0,
+      "missing_species": 0,
+      "current_temperature_outside_bounds": 0,
+      "average_temperature_outside_bounds": 0,
+      "maximum_temperature_outside_bounds": 0,
+      "storage_duration_hours_outside_bounds": 0,
+      "humidity_outside_bounds": 0,
+      "transport_duration_hours_outside_bounds": 0,
+      "temperature_violation_count_outside_bounds": 0,
+      "temperature_violation_count_not_integer": 0,
+      "current_temperature_above_maximum": 223,
+      "average_temperature_above_maximum": 0,
+      "transport_duration_above_storage_duration": 319
+    },
+    "rows_rejected": 508,
+    "duplicate_rows_removed": 0,
+    "missing_feature_values_to_impute": {
+      "fish_species": 0,
+      "current_temperature": 0,
+      "average_temperature": 0,
+      "maximum_temperature": 0,
+      "storage_duration_hours": 0,
+      "humidity": 0,
+      "transport_duration_hours": 0,
+      "temperature_violation_count": 0
+    },
+    "batch_id_source": "generated_unique_id_per_synthetic_sample",
+    "rows_used": 1492,
+    "unique_batches": 1492
+  },
+  "train_rows": 1193,
+  "test_rows": 299,
+  "train_batches": 1193,
+  "test_batches": 299,
+  "batch_overlap_count": 0,
+  "accuracy": 0.8394648829431438,
+  "multiclass_log_loss": 0.40693042576210625,
+  "classification_report": {
+    "LOW": {
+      "precision": 0.8048780487804879,
+      "recall": 0.5409836065573771,
+      "f1-score": 0.6470588235294118,
+      "support": 61.0
+    },
+    "MEDIUM": {
+      "precision": 0.7658227848101266,
+      "recall": 0.9166666666666666,
+      "f1-score": 0.8344827586206897,
+      "support": 132.0
+    },
+    "HIGH": {
+      "precision": 0.97,
+      "recall": 0.9150943396226415,
+      "f1-score": 0.941747572815534,
+      "support": 106.0
+    },
+    "accuracy": 0.8394648829431438,
+    "macro avg": {
+      "precision": 0.8469002778635382,
+      "recall": 0.7909148709488951,
+      "f1-score": 0.8077630516552118,
+      "support": 299.0
+    },
+    "weighted avg": {
+      "precision": 0.8461744768245701,
+      "recall": 0.8394648829431438,
+      "f1-score": 0.8342727595039189,
+      "support": 299.0
+    }
+  },
+  "confusion_matrix_labels": [
+    "LOW",
+    "MEDIUM",
+    "HIGH"
+  ],
+  "confusion_matrix": [
+    [
+      33,
+      28,
+      0
+    ],
+    [
+      8,
+      121,
+      3
+    ],
+    [
+      0,
+      9,
+      97
+    ]
+  ],
+  "permutation_importance_f1_macro": {
+    "storage_duration_hours": 0.12458202556526148,
+    "temperature_violation_count": 0.08414918281927514,
+    "maximum_temperature": 0.06051602151757548,
+    "average_temperature": 0.023167421761805574,
+    "fish_species": 0.020368201475044135,
+    "current_temperature": 0.011369036749404083,
+    "transport_duration_hours": 0.006190952314769594,
+    "humidity": 0.004976280242635056
+  }
+}

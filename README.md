@@ -1,0 +1,494 @@
+# Fish Spoilage Risk Prediction API
+
+AI component of the **IoT-Based Fish Traceability and Cold-Chain Monitoring System** university project.
+
+This repository trains a Random Forest classifier from prototype fish cold-chain data and serves its predictions through FastAPI. The service predicts one of three risk levels:
+
+- `LOW`
+- `MEDIUM`
+- `HIGH`
+
+> **Important:** The current dataset is synthetic. This model is a university prototype and decision-support tool, not a food-safety certification system. An authorised quality inspector must make the final decision about a fish batch.
+
+## Current model results
+
+The saved `spoilage-v1` model was evaluated on a group-held-out test set.
+
+| Metric | Result |
+|---|---:|
+| Rows originally loaded | 2,000 |
+| Contradictory rows rejected | 508 |
+| Rows used | 1,492 |
+| Training rows | 1,193 |
+| Test rows | 299 |
+| Train/test batch overlap | 0 |
+| Test accuracy | 83.95% |
+| HIGH-risk precision | 97.00% |
+| HIGH-risk recall | 91.51% |
+| HIGH-risk F1-score | 94.17% |
+
+The complete evaluation is stored in [`model_metrics.json`](model_metrics.json), and the visual result is stored in [`confusion_matrix.png`](confusion_matrix.png).
+
+## Main features
+
+- Validates and cleans the training CSV before model fitting.
+- Rejects contradictory temperature and duration records.
+- Prevents batch leakage between training and testing.
+- One-hot encodes fish species.
+- Imputes missing feature values.
+- Gives additional training weight to the `HIGH` class.
+- Calibrates the model probabilities.
+- Returns probabilities for all three risk levels.
+- Provides strict FastAPI request validation.
+- Includes interactive Swagger documentation.
+- Includes automated API and artifact regression tests.
+
+## How the system works
+
+```text
+fish_spoilage_dataset.csv
+          |
+          v
+Dataset validation and cleaning
+          |
+          v
+Group-aware train/test split
+          |
+          v
+One-hot encoding + missing-value imputation
+          |
+          v
+Random Forest + probability calibration
+          |
+          v
+spoilage_model.joblib
+          |
+          v
+FastAPI POST /predict
+          |
+          v
+Risk level + confidence + probabilities + recommendation
+```
+
+## Project files
+
+| File | Purpose |
+|---|---|
+| `fish_spoilage_dataset.csv` | Synthetic model-training data |
+| `train_model.py` | Validates data, trains the model, evaluates it, and saves artifacts |
+| `predict_api.py` | Loads the artifact and exposes the FastAPI endpoints |
+| `spoilage_model.joblib` | Saved preprocessing pipeline, calibrated model, and metadata |
+| `model_metrics.json` | Machine-readable data audit and evaluation results |
+| `confusion_matrix.png` | Visual evaluation of the held-out test predictions |
+| `test_predict_api.py` | Automated API, validation, and artifact tests |
+| `requirements.txt` | Python dependencies |
+
+## Requirements
+
+- Python 3.12 recommended
+- Windows, Linux, or macOS
+- `pip` or `uv`
+
+## Installation
+
+### Option 1: Standard Python and pip
+
+Create and activate a virtual environment:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+On Linux or macOS, activate it with:
+
+```bash
+source .venv/bin/activate
+```
+
+Install the dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+### Option 2: uv
+
+```powershell
+uv venv --python 3.12
+uv pip install -r requirements.txt
+```
+
+You can also run commands without manually activating an environment:
+
+```powershell
+uv run --python 3.12 --with-requirements requirements.txt python train_model.py
+```
+
+## Training the model
+
+Run:
+
+```powershell
+python train_model.py
+```
+
+Or with `uv`:
+
+```powershell
+uv run --python 3.12 --with-requirements requirements.txt python train_model.py
+```
+
+Training performs the following operations:
+
+1. Loads `fish_spoilage_dataset.csv`.
+2. Checks that every required column exists.
+3. Normalises species names and risk labels.
+4. Converts numeric columns safely.
+5. Rejects impossible values and relationships.
+6. Removes exact duplicate samples.
+7. Creates temporary unique synthetic batch IDs when no real `batch_id` exists.
+8. Creates a group-aware training and test split.
+9. Builds group-aware probability-calibration folds.
+10. Fits preprocessing and the Random Forest together.
+11. Evaluates the untouched test fold.
+12. Saves the model, metrics, and confusion matrix.
+
+The command updates these files:
+
+- `spoilage_model.joblib`
+- `model_metrics.json`
+- `confusion_matrix.png`
+
+## Training dataset schema
+
+The current CSV requires these columns:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `fish_species` | Text | Fish category known to the model |
+| `current_temperature` | Number | Current product temperature in degrees Celsius |
+| `average_temperature` | Number | Average product temperature in degrees Celsius |
+| `maximum_temperature` | Number | Highest product temperature in degrees Celsius |
+| `storage_duration_hours` | Number | Total storage duration in hours |
+| `humidity` | Number | Relative humidity percentage |
+| `transport_duration_hours` | Number | Transport duration in hours |
+| `temperature_violation_count` | Integer | Number of recorded temperature violations |
+| `spoilage_risk` | Text | Target label: `LOW`, `MEDIUM`, or `HIGH` |
+
+A real dataset should also contain a `batch_id` column. Multiple readings from the same physical fish batch must have the same batch ID. The splitter then keeps the complete batch on only one side of the train/test boundary.
+
+## Dataset validation
+
+The training script rejects records when:
+
+- A target label is missing or is not `LOW`, `MEDIUM`, or `HIGH`.
+- The fish species is missing.
+- A numeric value falls outside the broad prototype engineering limits.
+- `temperature_violation_count` is not a whole number.
+- Current product temperature is greater than maximum product temperature.
+- Average product temperature is greater than maximum product temperature.
+- Transport duration is greater than storage duration.
+
+Missing feature values are not rejected. They are imputed inside the model pipeline using the most frequent species or numeric training median.
+
+## Running FastAPI
+
+Start the server:
+
+```powershell
+uvicorn predict_api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Or run it with `uv`:
+
+```powershell
+uv run --python 3.12 --with-requirements requirements.txt uvicorn predict_api:app --reload --port 8000
+```
+
+Available URLs:
+
+| URL | Purpose |
+|---|---|
+| `http://127.0.0.1:8000/` | Health check |
+| `http://127.0.0.1:8000/predict` | Prediction endpoint |
+| `http://127.0.0.1:8000/docs` | Swagger UI |
+| `http://127.0.0.1:8000/redoc` | ReDoc documentation |
+| `http://127.0.0.1:8000/openapi.json` | OpenAPI schema |
+
+## Health-check endpoint
+
+Request:
+
+```http
+GET /
+```
+
+Example response:
+
+```json
+{
+  "status": "AI service running",
+  "modelVersion": "spoilage-v1",
+  "datasetType": "synthetic prototype",
+  "decisionSupportOnly": true
+}
+```
+
+## Prediction endpoint
+
+Request:
+
+```http
+POST /predict
+Content-Type: application/json
+```
+
+Example body:
+
+```json
+{
+  "fishSpecies": "Yellowfin Tuna",
+  "currentProductTemperature": 3.5,
+  "averageProductTemperature": 3.2,
+  "minimumProductTemperature": 2.8,
+  "maximumProductTemperature": 5.1,
+  "airTemperature": 4.0,
+  "humidity": 81,
+  "storageDurationHours": 36,
+  "transportDurationHours": 4,
+  "timeAboveLimitMinutes": 12,
+  "temperatureViolationCount": 12,
+  "timeSinceCatchHours": 36
+}
+```
+
+Example response from the current model:
+
+```json
+{
+  "riskLevel": "MEDIUM",
+  "confidence": 0.89,
+  "probabilities": {
+    "LOW": 0.06,
+    "MEDIUM": 0.89,
+    "HIGH": 0.05
+  },
+  "recommendation": "Inspect the batch and maintain temperature below 4°C.",
+  "modelVersion": "spoilage-v1"
+}
+```
+
+Probabilities are rounded to two decimal places and adjusted for rounding so they total `1.00`. `confidence` is the probability belonging to `riskLevel`.
+
+## Prediction request fields
+
+| Field | Allowed range | Used by model? | Description |
+|---|---:|:---:|---|
+| `fishSpecies` | 1-100 characters | Yes | Fish species name |
+| `currentProductTemperature` | -5 to 40°C | Yes | Latest product-sensor reading |
+| `averageProductTemperature` | -5 to 40°C | Yes | Average product temperature |
+| `minimumProductTemperature` | -10 to 40°C | No | Minimum product temperature; currently validation/context only |
+| `maximumProductTemperature` | -5 to 50°C | Yes | Maximum product temperature |
+| `airTemperature` | -10 to 50°C | No | Box air temperature; currently validation/context only |
+| `humidity` | 0 to 100% | Yes | Relative humidity |
+| `storageDurationHours` | 0 to 8,760 | Yes | Total storage duration |
+| `transportDurationHours` | 0 to 720 | Yes | Transport duration |
+| `timeAboveLimitMinutes` | 0 to 525,600 | No | Total time over the temperature limit; currently validation/context only |
+| `temperatureViolationCount` | 0 to 10,000 | Yes | Count of temperature violations |
+| `timeSinceCatchHours` | 0 to 8,760 | No | Time elapsed since catch; currently validation/context only |
+
+The fields marked **No** are accepted and validated by the API but are not yet model features because the current CSV does not contain matching training columns. They must not be described as influencing the prediction until real labelled values are collected and the model is retrained.
+
+## Cross-field request validation
+
+FastAPI rejects a request with HTTP `422` when:
+
+- Current product temperature is outside the minimum/maximum interval.
+- Average product temperature is outside the minimum/maximum interval.
+- Transport duration is greater than storage duration.
+- Storage duration is greater than time since catch.
+- Time above limit is longer than the complete storage duration.
+- A numeric field is infinite or `NaN`.
+- An unexpected extra field is supplied.
+
+Unknown species return HTTP `400`. Species matching is case-insensitive. `Yellowfin Tuna` is currently mapped to the broader `Tuna` category because the synthetic dataset does not have a separate Yellowfin Tuna class.
+
+## Calling the API with curl
+
+```bash
+curl -X POST "http://127.0.0.1:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fishSpecies": "Yellowfin Tuna",
+    "currentProductTemperature": 3.5,
+    "averageProductTemperature": 3.2,
+    "minimumProductTemperature": 2.8,
+    "maximumProductTemperature": 5.1,
+    "airTemperature": 4.0,
+    "humidity": 81,
+    "storageDurationHours": 36,
+    "transportDurationHours": 4,
+    "timeAboveLimitMinutes": 12,
+    "temperatureViolationCount": 12,
+    "timeSinceCatchHours": 36
+  }'
+```
+
+## Calling the API from Python
+
+```python
+import requests
+
+payload = {
+    "fishSpecies": "Yellowfin Tuna",
+    "currentProductTemperature": 3.5,
+    "averageProductTemperature": 3.2,
+    "minimumProductTemperature": 2.8,
+    "maximumProductTemperature": 5.1,
+    "airTemperature": 4.0,
+    "humidity": 81,
+    "storageDurationHours": 36,
+    "transportDurationHours": 4,
+    "timeAboveLimitMinutes": 12,
+    "temperatureViolationCount": 12,
+    "timeSinceCatchHours": 36,
+}
+
+response = requests.post(
+    "http://127.0.0.1:8000/predict",
+    json=payload,
+    timeout=10,
+)
+response.raise_for_status()
+print(response.json())
+```
+
+## Spring Boot integration
+
+The Spring Boot backend should:
+
+1. Calculate summary values from stored IoT readings.
+2. Send the JSON request to `POST /predict`.
+3. Store the full response in the `ai_predictions` table.
+4. Show the risk as decision support.
+5. Generate an alert when `riskLevel` is `HIGH`.
+6. Never use this response as automatic food-safety certification.
+
+For Docker Compose, the Spring service should call the FastAPI service by its Compose service name, for example `http://ai-service:8000/predict`, rather than `localhost`.
+
+## Running tests
+
+Run only the project test file:
+
+```powershell
+pytest -q test_predict_api.py
+```
+
+Or with `uv`:
+
+```powershell
+uv run --python 3.12 --with-requirements requirements.txt pytest -q test_predict_api.py
+```
+
+The tests cover:
+
+- Health endpoint metadata.
+- Valid prediction response structure.
+- Case-insensitive species and Yellowfin Tuna aliasing.
+- Probability ranges and sum.
+- Confidence matching the selected class probability.
+- Negative durations.
+- Invalid humidity.
+- Contradictory temperature summaries.
+- Contradictory elapsed times.
+- Unknown species.
+- Unexpected fields.
+- Batch leakage and HIGH-risk recall in the saved metrics.
+
+## Model design
+
+The saved artifact contains:
+
+- Most-frequent imputation for missing species.
+- One-hot encoding for fish species.
+- Median imputation for numeric inputs.
+- A 300-tree Random Forest with maximum depth 10.
+- Minimum leaf size 3.
+- Explicit class weights: LOW `1.0`, MEDIUM `1.0`, HIGH `2.0`.
+- Sigmoid probability calibration using group-aware folds.
+- Model version, training timestamp, feature list, species list, metrics, and safety metadata.
+
+The model is deterministic because training and splitting use `random_state=42`.
+
+## Confusion matrix
+
+The current held-out confusion matrix is:
+
+| True / Predicted | LOW | MEDIUM | HIGH |
+|---|---:|---:|---:|
+| LOW | 33 | 28 | 0 |
+| MEDIUM | 8 | 121 | 3 |
+| HIGH | 0 | 9 | 97 |
+
+The model missed nine HIGH-risk samples by predicting MEDIUM, but none were predicted LOW.
+
+## Limitations
+
+- The dataset and labels are AI-generated synthetic data.
+- Synthetic performance does not prove performance on real fish batches.
+- The current file contains one synthetic sample per generated batch ID.
+- Yellowfin Tuna is mapped to Tuna rather than learned independently.
+- Minimum temperature, air temperature, time above limit, and time since catch are not current model features.
+- The temperature limits in the code are engineering validation ranges, not official safety thresholds.
+- Prediction probabilities are calibrated only against synthetic data.
+- The model does not use odour, texture, eye condition, gill colour, laboratory testing, or expert inspection results.
+
+## Recommended next steps
+
+1. Collect real sensor readings and expert-labelled inspection outcomes.
+2. Store a real `batch_id` with every observation.
+3. Add the four new telemetry fields to the training dataset.
+4. Define species-specific handling with a fisheries or food-science supervisor.
+5. Retrain and evaluate on batches from different trips, dates, boats, and routes.
+6. Compare the Random Forest against a simple rule-based baseline.
+7. Recheck probability calibration on independent real data.
+8. Monitor model drift after deployment.
+
+## Troubleshooting
+
+### `spoilage_model.joblib not found`
+
+Run the training script before starting FastAPI:
+
+```powershell
+python train_model.py
+```
+
+### HTTP `400 Unknown fishSpecies`
+
+Use a species present in the trained artifact. The currently recognised training categories are Tuna, Tilapia, Snapper, Sardine, and Mackerel. Yellowfin Tuna is supported through an explicit alias to Tuna.
+
+### HTTP `422 Unprocessable Entity`
+
+Read the `detail` array in the response. It identifies the missing, out-of-range, contradictory, or unexpected field.
+
+### Port 8000 is already in use
+
+Start the server on another port:
+
+```powershell
+uvicorn predict_api:app --reload --port 8001
+```
+
+### Model artifact is outdated
+
+If the API reports missing bundle keys, regenerate it:
+
+```powershell
+python train_model.py
+```
+
+## Academic use
+
+This code is intended for the AI component of a university prototype. Clearly disclose the synthetic nature of the dataset, report both successful and failed predictions, and avoid presenting its thresholds or probabilities as approved food-safety standards.

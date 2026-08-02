@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app.py": {
+      "includeFiles": "spoilage_model.joblib",
+      "excludeFiles": "{fish_spoilage_dataset.csv,train_model.py,test_predict_api.py,confusion_matrix.png,model_metrics.json,.venv/**,__pycache__/**,.pytest_cache/**}"
+    }
+  }
+}

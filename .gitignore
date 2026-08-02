@@ -1,0 +1,40 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing and analysis caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Temporary files and uv caches
+tmp/
+.uv-cache/
+.uv-*-cache/
+*.tmp
+*.log
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Vercel local configuration
+.vercel/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini
