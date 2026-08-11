@@ -11,6 +11,18 @@ from predict_api import app
 
 BASE_DIR = Path(__file__).resolve().parent
 client = TestClient(app)
+TEST_TOKEN = "test-ai-service-token"
+
+
+@pytest.fixture(autouse=True)
+def configure_service_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give every API test a deterministic service token."""
+    monkeypatch.setenv("AI_SERVICE_TOKEN", TEST_TOKEN)
+
+
+def auth_headers() -> dict[str, str]:
+    """Return the valid bearer token used by prediction requests."""
+    return {"Authorization": f"Bearer {TEST_TOKEN}"}
 
 
 def valid_payload() -> dict:
@@ -43,7 +55,7 @@ def test_valid_prediction_and_case_insensitive_species() -> None:
     """A normal request must return the complete public response contract."""
     payload = valid_payload()
     payload["fishSpecies"] = "  yellowfin tuna  "
-    response = client.post("/predict", json=payload)
+    response = client.post("/predict", json=payload, headers=auth_headers())
     body = response.json()
     assert response.status_code == 200
     assert body["riskLevel"] in {"LOW", "MEDIUM", "HIGH"}
@@ -94,7 +106,7 @@ def test_invalid_measurements_are_rejected(
     """Each invalid physical condition should produce a helpful HTTP 422."""
     payload = valid_payload()
     payload.update(changes)
-    response = client.post("/predict", json=payload)
+    response = client.post("/predict", json=payload, headers=auth_headers())
     assert response.status_code == 422
     assert expected_message in response.text
 
@@ -103,7 +115,7 @@ def test_unknown_species_returns_clear_client_error() -> None:
     """Unsupported species should fail clearly instead of being guessed."""
     payload = valid_payload()
     payload["fishSpecies"] = "Unknown fish"
-    response = client.post("/predict", json=payload)
+    response = client.post("/predict", json=payload, headers=auth_headers())
     assert response.status_code == 400
     assert "Known species" in response.json()["detail"]
 
@@ -112,8 +124,21 @@ def test_extra_fields_are_rejected() -> None:
     """Unexpected JSON keys often indicate an integration naming mistake."""
     payload = valid_payload()
     payload["secretUnexpectedValue"] = 123
-    response = client.post("/predict", json=payload)
+    response = client.post("/predict", json=payload, headers=auth_headers())
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [None, {"Authorization": "Bearer wrong-token"}],
+)
+def test_prediction_requires_valid_bearer_token(
+    headers: dict[str, str] | None,
+) -> None:
+    """Missing and incorrect service credentials must be rejected."""
+    response = client.post("/predict", json=valid_payload(), headers=headers)
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
 
 
 def test_training_report_has_no_batch_leakage() -> None:

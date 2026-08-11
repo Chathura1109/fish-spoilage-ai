@@ -8,12 +8,14 @@ Interactive documentation is then available at http://127.0.0.1:8000/docs.
 
 from __future__ import annotations
 
+import os
+import secrets
 from pathlib import Path
 from typing import Literal
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -192,8 +194,17 @@ def health_check() -> dict:
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(request: PredictRequest) -> PredictResponse:
+def predict(
+    request: PredictRequest,
+    authorization: str | None = Header(default=None),
+) -> PredictResponse:
     """Validate telemetry, run the model, and format the prediction."""
+    expected_authorization = f"Bearer {os.environ['AI_SERVICE_TOKEN']}"
+    if authorization is None or not secrets.compare_digest(
+        authorization, expected_authorization
+    ):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     # Resolve exact names and supported aliases to a species seen in training.
     requested_species = request.fishSpecies.casefold()
     canonical_species = species_lookup.get(requested_species)

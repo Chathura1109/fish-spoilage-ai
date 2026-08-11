@@ -194,9 +194,10 @@ Missing feature values are not rejected. They are imputed inside the model pipel
 
 ## Running FastAPI
 
-Start the server:
+Set a strong service token, then start the server:
 
 ```powershell
+$env:AI_SERVICE_TOKEN = "replace-with-a-long-random-secret"
 uvicorn predict_api:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -242,7 +243,12 @@ Request:
 ```http
 POST /predict
 Content-Type: application/json
+Authorization: Bearer replace-with-a-long-random-secret
 ```
+
+The prediction endpoint returns HTTP `401` when the bearer token is missing or
+does not match the server's `AI_SERVICE_TOKEN`. The health-check endpoint stays
+public.
 
 Example body:
 
@@ -319,6 +325,7 @@ Unknown species return HTTP `400`. Species matching is case-insensitive. `Yellow
 ```bash
 curl -X POST "http://127.0.0.1:8000/predict" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AI_SERVICE_TOKEN" \
   -d '{
     "fishSpecies": "Yellowfin Tuna",
     "currentProductTemperature": 3.5,
@@ -357,6 +364,7 @@ payload = {
 
 response = requests.post(
     "http://127.0.0.1:8000/predict",
+    headers={"Authorization": "Bearer replace-with-a-long-random-secret"},
     json=payload,
     timeout=10,
 )
@@ -369,7 +377,8 @@ print(response.json())
 The Spring Boot backend should:
 
 1. Calculate summary values from stored IoT readings.
-2. Send the JSON request to `POST /predict`.
+2. Send the JSON request to `POST /predict` with the shared bearer token in the
+   `Authorization` header.
 3. Store the full response in the `ai_predictions` table.
 4. Show the risk as decision support.
 5. Generate an alert when `riskLevel` is `HIGH`.
