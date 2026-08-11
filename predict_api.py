@@ -104,6 +104,8 @@ class PredictRequest(BaseModel):
                 "timeAboveLimitMinutes": 12,
                 "temperatureViolationCount": 12,
                 "timeSinceCatchHours": 36,
+                "hasTemperatureTelemetry": True,
+                "temperatureReadingCount": 48,
             }
         },
     )
@@ -120,6 +122,8 @@ class PredictRequest(BaseModel):
     timeAboveLimitMinutes: float = Field(ge=0, le=525_600)
     temperatureViolationCount: int = Field(ge=0, le=10_000)
     timeSinceCatchHours: float = Field(ge=0, le=8760)
+    hasTemperatureTelemetry: bool | None = None
+    temperatureReadingCount: int | None = None
 
     @model_validator(mode="after")
     def validate_physical_relationships(self) -> "PredictRequest":
@@ -219,10 +223,11 @@ def predict(
             ),
         )
 
-    # Four request fields are not present in the current training CSV:
+    # Six request fields are not present in the current training CSV:
     # minimumProductTemperature, airTemperature, timeAboveLimitMinutes, and
-    # timeSinceCatchHours. They are validated above, but the model cannot use
-    # them until real columns are collected and FEATURE_COLUMNS is expanded.
+    # timeSinceCatchHours, hasTemperatureTelemetry, and temperatureReadingCount.
+    # They are accepted or validated above, but the model cannot use them until
+    # real columns are collected and FEATURE_COLUMNS is expanded.
     row = pd.DataFrame(
         [
             {

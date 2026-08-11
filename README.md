@@ -265,7 +265,9 @@ Example body:
   "transportDurationHours": 4,
   "timeAboveLimitMinutes": 12,
   "temperatureViolationCount": 12,
-  "timeSinceCatchHours": 36
+  "timeSinceCatchHours": 36,
+  "hasTemperatureTelemetry": true,
+  "temperatureReadingCount": 48
 }
 ```
 
@@ -303,6 +305,8 @@ Probabilities are rounded to two decimal places and adjusted for rounding so the
 | `timeAboveLimitMinutes` | 0 to 525,600 | No | Total time over the temperature limit; currently validation/context only |
 | `temperatureViolationCount` | 0 to 10,000 | Yes | Count of temperature violations |
 | `timeSinceCatchHours` | 0 to 8,760 | No | Time elapsed since catch; currently validation/context only |
+| `hasTemperatureTelemetry` | `true`, `false`, or `null` | No | Whether temperature telemetry is available |
+| `temperatureReadingCount` | Integer or `null` | No | Number of available temperature readings |
 
 The fields marked **No** are accepted and validated by the API but are not yet model features because the current CSV does not contain matching training columns. They must not be described as influencing the prediction until real labelled values are collected and the model is retrained.
 
@@ -338,7 +342,9 @@ curl -X POST "http://127.0.0.1:8000/predict" \
     "transportDurationHours": 4,
     "timeAboveLimitMinutes": 12,
     "temperatureViolationCount": 12,
-    "timeSinceCatchHours": 36
+    "timeSinceCatchHours": 36,
+    "hasTemperatureTelemetry": true,
+    "temperatureReadingCount": 48
   }'
 ```
 
@@ -360,6 +366,8 @@ payload = {
     "timeAboveLimitMinutes": 12,
     "temperatureViolationCount": 12,
     "timeSinceCatchHours": 36,
+    "hasTemperatureTelemetry": True,
+    "temperatureReadingCount": 48,
 }
 
 response = requests.post(

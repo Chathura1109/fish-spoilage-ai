@@ -40,6 +40,8 @@ def valid_payload() -> dict:
         "timeAboveLimitMinutes": 12,
         "temperatureViolationCount": 12,
         "timeSinceCatchHours": 36,
+        "hasTemperatureTelemetry": True,
+        "temperatureReadingCount": 48,
     }
 
 
