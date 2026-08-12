@@ -1,6 +1,6 @@
 {
-  "model_version": "spoilage-v2",
-  "trained_at_utc": "2026-08-12T06:49:01.471047+00:00",
+  "model_version": "spoilage-v3",
+  "trained_at_utc": "2026-08-12T09:54:18.132549+00:00",
   "dataset_is_synthetic": true,
   "decision_support_only": true,
   "data_audit": {
@@ -42,13 +42,13 @@
       "fish_species": 0,
       "has_temperature_telemetry": 0,
       "temperature_reading_count": 0,
-      "current_temperature": 277,
-      "average_temperature": 277,
-      "minimum_temperature": 277,
-      "maximum_temperature": 277,
-      "air_temperature": 116,
+      "current_temperature": 239,
+      "average_temperature": 239,
+      "minimum_temperature": 239,
+      "maximum_temperature": 239,
+      "air_temperature": 119,
       "storage_duration_hours": 0,
-      "humidity": 94,
+      "humidity": 103,
       "transport_duration_hours": 0,
       "time_above_limit_minutes": 0,
       "temperature_violation_count": 0,
@@ -63,38 +63,38 @@
   "train_batches": 800,
   "test_batches": 200,
   "batch_overlap_count": 0,
-  "accuracy": 0.86875,
-  "multiclass_log_loss": 0.3338438036347997,
+  "accuracy": 0.88125,
+  "multiclass_log_loss": 0.30069197280233334,
   "classification_report": {
     "LOW": {
-      "precision": 0.8914027149321267,
-      "recall": 0.8454935622317596,
-      "f1-score": 0.8678414096916299,
-      "support": 233.0
+      "precision": 0.9194915254237288,
+      "recall": 0.889344262295082,
+      "f1-score": 0.9041666666666667,
+      "support": 244.0
     },
     "MEDIUM": {
-      "precision": 0.7915194346289752,
-      "recall": 0.8296296296296296,
-      "f1-score": 0.810126582278481,
-      "support": 270.0
+      "precision": 0.8082706766917294,
+      "recall": 0.8301158301158301,
+      "f1-score": 0.819047619047619,
+      "support": 259.0
     },
     "HIGH": {
-      "precision": 0.9256756756756757,
-      "recall": 0.9225589225589226,
-      "f1-score": 0.924114671163575,
+      "precision": 0.9161073825503355,
+      "recall": 0.9191919191919192,
+      "f1-score": 0.9176470588235294,
       "support": 297.0
     },
-    "accuracy": 0.86875,
+    "accuracy": 0.88125,
     "macro avg": {
-      "precision": 0.8695326084122592,
-      "recall": 0.8658940381401039,
-      "f1-score": 0.8673608877112287,
+      "precision": 0.8812898615552646,
+      "recall": 0.879550670534277,
+      "f1-score": 0.8802871148459382,
       "support": 800.0
     },
     "weighted avg": {
-      "precision": 0.8704159445058557,
-      "recall": 0.86875,
-      "f1-score": 0.8692541037611519,
+      "precision": 0.8822274126049967,
+      "recall": 0.88125,
+      "f1-score": 0.8816139705882352,
       "support": 800.0
     }
   },
@@ -105,35 +105,35 @@
   ],
   "confusion_matrix": [
     [
-      197,
-      36,
+      217,
+      27,
       0
     ],
     [
-      24,
-      224,
-      22
+      19,
+      215,
+      25
     ],
     [
       0,
-      23,
-      274
+      24,
+      273
     ]
   ],
   "permutation_importance_f1_macro": {
-    "time_above_limit_minutes": 0.09980498244984004,
-    "maximum_temperature": 0.06451706818325242,
-    "average_temperature": 0.031622143730456444,
-    "storage_duration_hours": 0.023066771620641035,
-    "time_since_catch_hours": 0.02242942553083439,
-    "temperature_violation_count": 0.021073174530776083,
-    "minimum_temperature": 0.008440982517550688,
-    "current_temperature": 0.006443999762649555,
-    "transport_duration_hours": 0.005436268850293702,
-    "temperature_reading_count": 0.003971456739101176,
-    "humidity": 0.002001285228191374,
-    "has_temperature_telemetry": 0.0011884482557044883,
-    "air_temperature": 0.0010644684239883295,
-    "fish_species": -0.00022061869264186073
+    "time_above_limit_minutes": 0.08466358935054025,
+    "maximum_temperature": 0.05906069302820092,
+    "average_temperature": 0.05149973319917632,
+    "temperature_violation_count": 0.0173599104675796,
+    "storage_duration_hours": 0.01117598944962308,
+    "time_since_catch_hours": 0.01108163242449145,
+    "humidity": 0.00032974313592789575,
+    "transport_duration_hours": -4.8425617420333465e-05,
+    "current_temperature": -0.00010925506341007419,
+    "minimum_temperature": -0.0008779587765365138,
+    "fish_species": -0.001388677053137044,
+    "has_temperature_telemetry": -0.001495988527814718,
+    "air_temperature": -0.003905753547995816,
+    "temperature_reading_count": -0.004080528483303048
   }
 }

@@ -25,6 +25,9 @@ SPECIES_SENSITIVITY = {
     "Snapper": 0.25,
     "Sardine": 0.45,
     "Mackerel": 0.55,
+    # OTHER deliberately represents a heterogeneous fallback group rather
+    # than pretending every unsupported species has one biological profile.
+    "Other": None,
 }
 
 FIELDNAMES = [
@@ -70,6 +73,9 @@ def generate_rows() -> list[dict[str, object]]:
     for batch_number in range(1, BATCH_COUNT + 1):
         batch_id = f"SYNTH-BATCH-{batch_number:06d}"
         species = rng.choice(list(SPECIES_SENSITIVITY))
+        species_sensitivity = SPECIES_SENSITIVITY[species]
+        if species_sensitivity is None:
+            species_sensitivity = rng.uniform(0.05, 0.65)
         final_age = rng.uniform(18.0, 168.0)
         cold_chain_baseline = rng.uniform(-0.5, 8.5)
         batch_humidity = rng.uniform(58.0, 96.0)
@@ -156,7 +162,7 @@ def generate_rows() -> list[dict[str, object]]:
                 temperature_score
                 + humidity_score
                 + duration_score
-                + SPECIES_SENSITIVITY[species]
+                + species_sensitivity
                 + batch_effect
                 + rng.gauss(0.0, 0.55)
             )

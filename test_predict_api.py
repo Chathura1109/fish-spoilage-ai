@@ -66,10 +66,11 @@ def test_synthetic_dataset_generator_is_grouped_and_reproducible() -> None:
         counts[batch_id] = counts.get(batch_id, 0) + 1
     assert len(counts) == 1_000
     assert set(counts.values()) == {4}
+    assert any(row["fish_species"] == "Other" for row in first)
 
 
 def test_saved_model_uses_complete_fishtrace_feature_contract() -> None:
-    """Every documented FishTrace aggregate must be part of spoilage-v2."""
+    """Every documented FishTrace aggregate must be part of spoilage-v3."""
     assert {
         "has_temperature_telemetry",
         "temperature_reading_count",
@@ -102,11 +103,15 @@ def test_valid_prediction_and_case_insensitive_species() -> None:
         "probabilities",
         "recommendation",
         "modelVersion",
+        "speciesCategory",
+        "speciesFallback",
     }
     assert set(body["probabilities"]) == {"LOW", "MEDIUM", "HIGH"}
     assert sum(body["probabilities"].values()) == pytest.approx(1.0)
     assert body["confidence"] == body["probabilities"][body["riskLevel"]]
-    assert body["modelVersion"] == "spoilage-v2"
+    assert body["modelVersion"] == "spoilage-v3"
+    assert body["speciesCategory"] == "Tuna"
+    assert body["speciesFallback"] is False
 
 
 @pytest.mark.parametrize(
@@ -151,13 +156,27 @@ def test_invalid_measurements_are_rejected(
     assert expected_message in response.text
 
 
-def test_unknown_species_returns_clear_client_error() -> None:
-    """Unsupported species should fail clearly instead of being guessed."""
+def test_unknown_species_uses_trained_other_fallback() -> None:
+    """Unsupported species should use the disclosed heterogeneous fallback."""
     payload = valid_payload()
-    payload["fishSpecies"] = "Unknown fish"
+    payload["fishSpecies"] = "Seer Fish"
     response = client.post("/predict", json=payload, headers=auth_headers())
-    assert response.status_code == 400
-    assert "Known species" in response.json()["detail"]
+    body = response.json()
+    assert response.status_code == 200
+    assert body["speciesCategory"] == "Other"
+    assert body["speciesFallback"] is True
+    assert "Species-specific profile unavailable" in body["recommendation"]
+
+
+def test_explicit_other_category_is_not_marked_as_automatic_fallback() -> None:
+    """Clients may explicitly select OTHER without claiming a mapping occurred."""
+    payload = valid_payload()
+    payload["fishSpecies"] = "Other"
+    response = client.post("/predict", json=payload, headers=auth_headers())
+    body = response.json()
+    assert response.status_code == 200
+    assert body["speciesCategory"] == "Other"
+    assert body["speciesFallback"] is False
 
 
 def test_extra_fields_are_rejected() -> None:

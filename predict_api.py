@@ -205,17 +205,35 @@ class PredictResponse(BaseModel):
     probabilities: RiskProbabilities
     recommendation: str
     modelVersion: str
+    speciesCategory: str
+    speciesFallback: bool
 
 
-def build_recommendation(risk_level: str, has_temperature_telemetry: bool) -> str:
+def build_recommendation(
+    risk_level: str,
+    has_temperature_telemetry: bool,
+    species_fallback: bool,
+) -> str:
     """Convert the predicted class into a short operational recommendation."""
     if not has_temperature_telemetry:
-        return "Collect product-temperature telemetry and arrange a quality inspection."
-    if risk_level == "HIGH":
-        return "Isolate the batch, maintain temperature below 4\u00b0C, and inspect immediately."
-    if risk_level == "MEDIUM":
-        return "Inspect the batch and maintain temperature below 4\u00b0C."
-    return "Continue monitoring and maintain temperature below 4\u00b0C."
+        recommendation = (
+            "Collect product-temperature telemetry and arrange a quality inspection."
+        )
+    elif risk_level == "HIGH":
+        recommendation = (
+            "Isolate the batch, maintain temperature below 4\u00b0C, and inspect immediately."
+        )
+    elif risk_level == "MEDIUM":
+        recommendation = "Inspect the batch and maintain temperature below 4\u00b0C."
+    else:
+        recommendation = "Continue monitoring and maintain temperature below 4\u00b0C."
+
+    if species_fallback:
+        return (
+            "Species-specific profile unavailable; prediction used the OTHER "
+            f"category. {recommendation}"
+        )
+    return recommendation
 
 
 @app.get("/")
@@ -249,14 +267,12 @@ def predict(
     canonical_species = species_lookup.get(requested_species)
     if canonical_species is None:
         canonical_species = species_aliases.get(requested_species)
+    species_fallback = False
     if canonical_species is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Unknown fishSpecies '{request.fishSpecies}'. "
-                f"Known species: {known_species}"
-            ),
-        )
+        canonical_species = species_lookup.get("other")
+        species_fallback = True
+    if canonical_species is None:
+        raise HTTPException(status_code=503, detail="OTHER species model is unavailable")
 
     row = pd.DataFrame(
         [
@@ -303,7 +319,11 @@ def predict(
         confidence=confidence,
         probabilities=RiskProbabilities(**rounded_probabilities),
         recommendation=build_recommendation(
-            risk_level, request.hasTemperatureTelemetry
+            risk_level,
+            request.hasTemperatureTelemetry,
+            species_fallback,
         ),
         modelVersion=model_version,
+        speciesCategory=canonical_species,
+        speciesFallback=species_fallback,
     )

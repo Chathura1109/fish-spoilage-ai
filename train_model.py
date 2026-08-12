@@ -44,7 +44,7 @@ MODEL_PATH = BASE_DIR / "spoilage_model.joblib"
 CONFUSION_MATRIX_PATH = BASE_DIR / "confusion_matrix.png"
 METRICS_PATH = BASE_DIR / "model_metrics.json"
 
-MODEL_VERSION = "spoilage-v2"
+MODEL_VERSION = "spoilage-v3"
 RANDOM_STATE = 42
 TARGET_COLUMN = "spoilage_risk"
 BATCH_COLUMN = "batch_id"

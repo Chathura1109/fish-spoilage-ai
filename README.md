@@ -12,7 +12,7 @@ This repository trains a Random Forest classifier from prototype fish cold-chain
 
 ## Current model results
 
-The saved `spoilage-v2` model was evaluated on a group-held-out test set.
+The saved `spoilage-v3` model was evaluated on a group-held-out test set.
 
 | Metric | Result |
 |---|---:|
@@ -23,10 +23,10 @@ The saved `spoilage-v2` model was evaluated on a group-held-out test set.
 | Training rows / batches | 3,200 / 800 |
 | Test rows / batches | 800 / 200 |
 | Train/test batch overlap | 0 |
-| Test accuracy | 86.88% |
-| HIGH-risk precision | 92.57% |
-| HIGH-risk recall | 92.26% |
-| HIGH-risk F1-score | 92.41% |
+| Test accuracy | 88.12% |
+| HIGH-risk precision | 91.61% |
+| HIGH-risk recall | 91.92% |
+| HIGH-risk F1-score | 91.76% |
 
 The complete evaluation is stored in [`model_metrics.json`](model_metrics.json), and the visual result is stored in [`confusion_matrix.png`](confusion_matrix.png).
 
@@ -250,7 +250,7 @@ Example response:
 ```json
 {
   "status": "AI service running",
-  "modelVersion": "spoilage-v2",
+  "modelVersion": "spoilage-v3",
   "datasetType": "synthetic prototype",
   "decisionSupportOnly": true
 }
@@ -302,8 +302,10 @@ Example response from the current model:
     "MEDIUM": 0.89,
     "HIGH": 0.05
   },
-  "recommendation": "Inspect the batch and maintain temperature below 4°C.",
-  "modelVersion": "spoilage-v2"
+  "recommendation": "Inspect the batch and maintain temperature below 4 degrees C.",
+  "modelVersion": "spoilage-v3",
+  "speciesCategory": "Tuna",
+  "speciesFallback": false
 }
 ```
 
@@ -344,7 +346,7 @@ FastAPI rejects a request with HTTP `422` when:
 - A numeric field is infinite or `NaN`.
 - An unexpected extra field is supplied.
 
-Unknown species return HTTP `400`. Species matching is case-insensitive. `Yellowfin Tuna` is currently mapped to the broader `Tuna` category because the synthetic dataset does not have a separate Yellowfin Tuna class.
+Species matching is case-insensitive. `Yellowfin Tuna` maps to the broader `Tuna` category. Any other unsupported species maps to the trained heterogeneous `Other` category and returns `speciesFallback=true`; its recommendation clearly requires cautious interpretation and quality inspection.
 
 ## Calling the API with curl
 
@@ -441,7 +443,7 @@ The tests cover:
 - Invalid humidity.
 - Contradictory temperature summaries.
 - Contradictory elapsed times.
-- Unknown species.
+- Unknown-species OTHER fallback and disclosure metadata.
 - Unexpected fields.
 - Missing product-temperature telemetry.
 - Contradictory telemetry availability metadata.
@@ -468,11 +470,11 @@ The current held-out confusion matrix is:
 
 | True / Predicted | LOW | MEDIUM | HIGH |
 |---|---:|---:|---:|
-| LOW | 197 | 36 | 0 |
-| MEDIUM | 24 | 224 | 22 |
-| HIGH | 0 | 23 | 274 |
+| LOW | 217 | 27 | 0 |
+| MEDIUM | 19 | 215 | 25 |
+| HIGH | 0 | 24 | 273 |
 
-The model missed 23 HIGH-risk samples by predicting MEDIUM, but none were predicted LOW.
+The model missed 24 HIGH-risk samples by predicting MEDIUM, but none were predicted LOW.
 
 ## Limitations
 
@@ -480,6 +482,7 @@ The model missed 23 HIGH-risk samples by predicting MEDIUM, but none were predic
 - Synthetic performance does not prove performance on real fish batches.
 - The current file contains four synthetic time snapshots for each generated batch.
 - Yellowfin Tuna is mapped to Tuna rather than learned independently.
+- Unsupported species use a heterogeneous synthetic OTHER category; this is not a species-specific biological profile.
 - The temperature limits in the code are engineering validation ranges, not official safety thresholds.
 - Prediction probabilities are calibrated only against synthetic data.
 - The model does not use odour, texture, eye condition, gill colour, laboratory testing, or expert inspection results.
@@ -504,9 +507,9 @@ Run the training script before starting FastAPI:
 python train_model.py
 ```
 
-### HTTP `400 Unknown fishSpecies`
+### Unknown fish species
 
-Use a species present in the trained artifact. The currently recognised training categories are Tuna, Tilapia, Snapper, Sardine, and Mackerel. Yellowfin Tuna is supported through an explicit alias to Tuna.
+The trained categories are Tuna, Tilapia, Snapper, Sardine, Mackerel, and Other. Yellowfin Tuna uses an explicit Tuna alias. Any other name (for example, Seer Fish) uses Other and returns `speciesFallback=true`; inspect that response as a generic telemetry-based estimate rather than species-specific evidence.
 
 ### HTTP `422 Unprocessable Entity`
 
