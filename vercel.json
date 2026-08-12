@@ -3,7 +3,7 @@
   "functions": {
     "app.py": {
       "includeFiles": "spoilage_model.joblib",
-      "excludeFiles": "{fish_spoilage_dataset.csv,train_model.py,test_predict_api.py,confusion_matrix.png,model_metrics.json,.venv/**,__pycache__/**,.pytest_cache/**}"
+      "excludeFiles": "{fish_spoilage_dataset.csv,generate_dataset.py,train_model.py,test_predict_api.py,confusion_matrix.png,model_metrics.json,.venv/**,__pycache__/**,.pytest_cache/**}"
     }
   }
 }

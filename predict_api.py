@@ -84,7 +84,7 @@ app = FastAPI(
 # Request and response schemas
 # ---------------------------------------------------------------------------
 class PredictRequest(BaseModel):
-    """Telemetry accepted from the Spring Boot backend or another client."""
+    """Telemetry aggregates accepted from the FishTrace Laravel backend."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -111,24 +111,54 @@ class PredictRequest(BaseModel):
     )
 
     fishSpecies: str = Field(min_length=1, max_length=100)
-    currentProductTemperature: float = Field(ge=-5, le=40)
-    averageProductTemperature: float = Field(ge=-5, le=40)
-    minimumProductTemperature: float = Field(ge=-10, le=40)
-    maximumProductTemperature: float = Field(ge=-5, le=50)
-    airTemperature: float = Field(ge=-10, le=50)
+    currentProductTemperature: float | None = Field(default=None, ge=-5, le=40)
+    averageProductTemperature: float | None = Field(default=None, ge=-5, le=40)
+    minimumProductTemperature: float | None = Field(default=None, ge=-10, le=40)
+    maximumProductTemperature: float | None = Field(default=None, ge=-5, le=50)
+    airTemperature: float | None = Field(default=None, ge=-10, le=50)
     storageDurationHours: float = Field(ge=0, le=8760)
     transportDurationHours: float = Field(ge=0, le=720)
-    humidity: float = Field(ge=0, le=100)
+    humidity: float | None = Field(default=None, ge=0, le=100)
     timeAboveLimitMinutes: float = Field(ge=0, le=525_600)
     temperatureViolationCount: int = Field(ge=0, le=10_000)
     timeSinceCatchHours: float = Field(ge=0, le=8760)
-    hasTemperatureTelemetry: bool | None = None
-    temperatureReadingCount: int | None = None
+    hasTemperatureTelemetry: bool
+    temperatureReadingCount: int = Field(ge=0, le=1_000_000)
 
     @model_validator(mode="after")
     def validate_physical_relationships(self) -> "PredictRequest":
         """Reject fields that are valid alone but contradictory together."""
-        if not (
+        product_temperatures = (
+            self.currentProductTemperature,
+            self.averageProductTemperature,
+            self.minimumProductTemperature,
+            self.maximumProductTemperature,
+        )
+        if self.hasTemperatureTelemetry:
+            if self.temperatureReadingCount == 0 or any(
+                value is None for value in product_temperatures
+            ):
+                raise ValueError(
+                    "temperature statistics and a positive reading count are required "
+                    "when hasTemperatureTelemetry is true"
+                )
+        elif (
+            self.temperatureReadingCount != 0
+            or any(value is not None for value in product_temperatures)
+            or self.timeAboveLimitMinutes != 0
+            or self.temperatureViolationCount != 0
+        ):
+            raise ValueError(
+                "product-temperature statistics, exposure, and violations must be "
+                "empty or zero when hasTemperatureTelemetry is false"
+            )
+
+        if self.temperatureViolationCount > self.temperatureReadingCount:
+            raise ValueError(
+                "temperatureViolationCount cannot exceed temperatureReadingCount"
+            )
+
+        if self.hasTemperatureTelemetry and not (
             self.minimumProductTemperature
             <= self.currentProductTemperature
             <= self.maximumProductTemperature
@@ -137,7 +167,7 @@ class PredictRequest(BaseModel):
                 "currentProductTemperature must be between "
                 "minimumProductTemperature and maximumProductTemperature"
             )
-        if not (
+        if self.hasTemperatureTelemetry and not (
             self.minimumProductTemperature
             <= self.averageProductTemperature
             <= self.maximumProductTemperature
@@ -177,8 +207,10 @@ class PredictResponse(BaseModel):
     modelVersion: str
 
 
-def build_recommendation(risk_level: str) -> str:
+def build_recommendation(risk_level: str, has_temperature_telemetry: bool) -> str:
     """Convert the predicted class into a short operational recommendation."""
+    if not has_temperature_telemetry:
+        return "Collect product-temperature telemetry and arrange a quality inspection."
     if risk_level == "HIGH":
         return "Isolate the batch, maintain temperature below 4\u00b0C, and inspect immediately."
     if risk_level == "MEDIUM":
@@ -203,7 +235,10 @@ def predict(
     authorization: str | None = Header(default=None),
 ) -> PredictResponse:
     """Validate telemetry, run the model, and format the prediction."""
-    expected_authorization = f"Bearer {os.environ['AI_SERVICE_TOKEN']}"
+    service_token = os.getenv("AI_SERVICE_TOKEN")
+    if not service_token:
+        raise HTTPException(status_code=503, detail="AI service is not configured")
+    expected_authorization = f"Bearer {service_token}"
     if authorization is None or not secrets.compare_digest(
         authorization, expected_authorization
     ):
@@ -223,22 +258,23 @@ def predict(
             ),
         )
 
-    # Six request fields are not present in the current training CSV:
-    # minimumProductTemperature, airTemperature, timeAboveLimitMinutes, and
-    # timeSinceCatchHours, hasTemperatureTelemetry, and temperatureReadingCount.
-    # They are accepted or validated above, but the model cannot use them until
-    # real columns are collected and FEATURE_COLUMNS is expanded.
     row = pd.DataFrame(
         [
             {
                 "fish_species": canonical_species,
+                "has_temperature_telemetry": int(request.hasTemperatureTelemetry),
+                "temperature_reading_count": request.temperatureReadingCount,
                 "current_temperature": request.currentProductTemperature,
                 "average_temperature": request.averageProductTemperature,
+                "minimum_temperature": request.minimumProductTemperature,
                 "maximum_temperature": request.maximumProductTemperature,
+                "air_temperature": request.airTemperature,
                 "storage_duration_hours": request.storageDurationHours,
                 "humidity": request.humidity,
                 "transport_duration_hours": request.transportDurationHours,
+                "time_above_limit_minutes": request.timeAboveLimitMinutes,
                 "temperature_violation_count": request.temperatureViolationCount,
+                "time_since_catch_hours": request.timeSinceCatchHours,
             }
         ]
     )[feature_columns]
@@ -266,6 +302,8 @@ def predict(
         riskLevel=risk_level,
         confidence=confidence,
         probabilities=RiskProbabilities(**rounded_probabilities),
-        recommendation=build_recommendation(risk_level),
+        recommendation=build_recommendation(
+            risk_level, request.hasTemperatureTelemetry
+        ),
         modelVersion=model_version,
     )

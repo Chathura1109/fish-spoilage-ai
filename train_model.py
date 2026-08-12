@@ -44,7 +44,7 @@ MODEL_PATH = BASE_DIR / "spoilage_model.joblib"
 CONFUSION_MATRIX_PATH = BASE_DIR / "confusion_matrix.png"
 METRICS_PATH = BASE_DIR / "model_metrics.json"
 
-MODEL_VERSION = "spoilage-v1"
+MODEL_VERSION = "spoilage-v2"
 RANDOM_STATE = 42
 TARGET_COLUMN = "spoilage_risk"
 BATCH_COLUMN = "batch_id"
@@ -52,26 +52,38 @@ VALID_LABELS = {"LOW", "MEDIUM", "HIGH"}
 
 CATEGORICAL_FEATURES = ["fish_species"]
 NUMERIC_FEATURES = [
+    "has_temperature_telemetry",
+    "temperature_reading_count",
     "current_temperature",
     "average_temperature",
+    "minimum_temperature",
     "maximum_temperature",
+    "air_temperature",
     "storage_duration_hours",
     "humidity",
     "transport_duration_hours",
+    "time_above_limit_minutes",
     "temperature_violation_count",
+    "time_since_catch_hours",
 ]
 FEATURE_COLUMNS = CATEGORICAL_FEATURES + NUMERIC_FEATURES
 
 # Broad engineering limits for the prototype API. These are input-integrity
 # limits, not official food-safety thresholds.
 INPUT_BOUNDS = {
+    "has_temperature_telemetry": (0, 1),
+    "temperature_reading_count": (0, 1_000_000),
     "current_temperature": (-5.0, 40.0),
     "average_temperature": (-5.0, 40.0),
+    "minimum_temperature": (-10.0, 40.0),
     "maximum_temperature": (-5.0, 50.0),
+    "air_temperature": (-10.0, 50.0),
     "storage_duration_hours": (0.0, 8760.0),
     "humidity": (0.0, 100.0),
     "transport_duration_hours": (0.0, 720.0),
+    "time_above_limit_minutes": (0.0, 525_600.0),
     "temperature_violation_count": (0, 10_000),
+    "time_since_catch_hours": (0.0, 8760.0),
 }
 
 
@@ -95,6 +107,14 @@ def load_and_validate_dataset(path: Path) -> tuple[pd.DataFrame, dict]:
     df = df.copy()
     df["fish_species"] = df["fish_species"].astype("string").str.strip().str.title()
     df[TARGET_COLUMN] = df[TARGET_COLUMN].astype("string").str.strip().str.upper()
+    telemetry_values = (
+        df["has_temperature_telemetry"]
+        .astype("string")
+        .str.strip()
+        .str.lower()
+        .map({"true": 1.0, "false": 0.0, "1": 1.0, "0": 0.0})
+    )
+    df["has_temperature_telemetry"] = telemetry_values
     for column in NUMERIC_FEATURES:
         df[column] = pd.to_numeric(df[column], errors="coerce")
 
@@ -111,6 +131,14 @@ def load_and_validate_dataset(path: Path) -> tuple[pd.DataFrame, dict]:
 
     reject("missing_or_unknown_target", ~df[TARGET_COLUMN].isin(VALID_LABELS))
     reject("missing_species", df["fish_species"].isna() | df["fish_species"].eq(""))
+    reject(
+        "missing_telemetry_availability",
+        df["has_temperature_telemetry"].isna(),
+    )
+    reject(
+        "missing_temperature_reading_count",
+        df["temperature_reading_count"].isna(),
+    )
 
     # Check each numeric input against broad prototype engineering limits.
     for column, (minimum, maximum) in INPUT_BOUNDS.items():
@@ -120,11 +148,9 @@ def load_and_validate_dataset(path: Path) -> tuple[pd.DataFrame, dict]:
             value.notna() & ~value.between(minimum, maximum),
         )
 
-    violation_count = df["temperature_violation_count"]
-    reject(
-        "temperature_violation_count_not_integer",
-        violation_count.notna() & violation_count.mod(1).ne(0),
-    )
+    for column in ["temperature_reading_count", "temperature_violation_count"]:
+        value = df[column]
+        reject(f"{column}_not_integer", value.notna() & value.mod(1).ne(0))
     reject(
         "current_temperature_above_maximum",
         df["current_temperature"].notna()
@@ -138,10 +164,67 @@ def load_and_validate_dataset(path: Path) -> tuple[pd.DataFrame, dict]:
         & df["average_temperature"].gt(df["maximum_temperature"]),
     )
     reject(
+        "minimum_temperature_above_current",
+        df["minimum_temperature"].notna()
+        & df["current_temperature"].notna()
+        & df["minimum_temperature"].gt(df["current_temperature"]),
+    )
+    reject(
+        "minimum_temperature_above_average",
+        df["minimum_temperature"].notna()
+        & df["average_temperature"].notna()
+        & df["minimum_temperature"].gt(df["average_temperature"]),
+    )
+    reject(
         "transport_duration_above_storage_duration",
         df["transport_duration_hours"].notna()
         & df["storage_duration_hours"].notna()
         & df["transport_duration_hours"].gt(df["storage_duration_hours"]),
+    )
+    reject(
+        "storage_duration_above_time_since_catch",
+        df["storage_duration_hours"].notna()
+        & df["time_since_catch_hours"].notna()
+        & df["storage_duration_hours"].gt(df["time_since_catch_hours"]),
+    )
+    reject(
+        "time_above_limit_exceeds_storage_duration",
+        df["time_above_limit_minutes"].notna()
+        & df["storage_duration_hours"].notna()
+        & df["time_above_limit_minutes"].gt(df["storage_duration_hours"] * 60),
+    )
+
+    product_temperature_columns = [
+        "current_temperature",
+        "average_temperature",
+        "minimum_temperature",
+        "maximum_temperature",
+    ]
+    has_telemetry = df["has_temperature_telemetry"].eq(1)
+    lacks_telemetry = df["has_temperature_telemetry"].eq(0)
+    reject(
+        "telemetry_present_without_readings",
+        has_telemetry
+        & (
+            df["temperature_reading_count"].fillna(0).le(0)
+            | df[product_temperature_columns].isna().any(axis=1)
+        ),
+    )
+    reject(
+        "telemetry_absent_with_product_measurements",
+        lacks_telemetry
+        & (
+            df["temperature_reading_count"].fillna(0).ne(0)
+            | df[product_temperature_columns].notna().any(axis=1)
+            | df["time_above_limit_minutes"].fillna(0).ne(0)
+            | df["temperature_violation_count"].fillna(0).ne(0)
+        ),
+    )
+    reject(
+        "violations_exceed_reading_count",
+        df["temperature_violation_count"].notna()
+        & df["temperature_reading_count"].notna()
+        & df["temperature_violation_count"].gt(df["temperature_reading_count"]),
     )
 
     audit["invalid_row_reasons"] = reasons

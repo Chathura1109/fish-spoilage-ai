@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from predict_api import app
+from generate_dataset import generate_rows
+from predict_api import app, feature_columns
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -53,6 +54,39 @@ def test_health_check_identifies_prototype() -> None:
     assert response.json()["datasetType"] == "synthetic prototype"
 
 
+def test_synthetic_dataset_generator_is_grouped_and_reproducible() -> None:
+    """The academic dataset must have repeated snapshots without randomness drift."""
+    first = generate_rows()
+    second = generate_rows()
+    assert first == second
+    assert len(first) == 4_000
+    counts: dict[str, int] = {}
+    for row in first:
+        batch_id = str(row["batch_id"])
+        counts[batch_id] = counts.get(batch_id, 0) + 1
+    assert len(counts) == 1_000
+    assert set(counts.values()) == {4}
+
+
+def test_saved_model_uses_complete_fishtrace_feature_contract() -> None:
+    """Every documented FishTrace aggregate must be part of spoilage-v2."""
+    assert {
+        "has_temperature_telemetry",
+        "temperature_reading_count",
+        "current_temperature",
+        "average_temperature",
+        "minimum_temperature",
+        "maximum_temperature",
+        "air_temperature",
+        "humidity",
+        "storage_duration_hours",
+        "transport_duration_hours",
+        "time_above_limit_minutes",
+        "temperature_violation_count",
+        "time_since_catch_hours",
+    }.issubset(feature_columns)
+
+
 def test_valid_prediction_and_case_insensitive_species() -> None:
     """A normal request must return the complete public response contract."""
     payload = valid_payload()
@@ -72,7 +106,7 @@ def test_valid_prediction_and_case_insensitive_species() -> None:
     assert set(body["probabilities"]) == {"LOW", "MEDIUM", "HIGH"}
     assert sum(body["probabilities"].values()) == pytest.approx(1.0)
     assert body["confidence"] == body["probabilities"][body["riskLevel"]]
-    assert body["modelVersion"] == "spoilage-v1"
+    assert body["modelVersion"] == "spoilage-v2"
 
 
 @pytest.mark.parametrize(
@@ -99,6 +133,10 @@ def test_valid_prediction_and_case_insensitive_species() -> None:
         (
             {"timeAboveLimitMinutes": 3000},
             "timeAboveLimitMinutes cannot exceed the total storage duration",
+        ),
+        (
+            {"temperatureReadingCount": 2, "temperatureViolationCount": 3},
+            "temperatureViolationCount cannot exceed temperatureReadingCount",
         ),
     ],
 )
@@ -130,6 +168,37 @@ def test_extra_fields_are_rejected() -> None:
     assert response.status_code == 422
 
 
+def test_missing_product_temperature_telemetry_is_supported() -> None:
+    """FishTrace may import a reading without a product-temperature value."""
+    payload = valid_payload()
+    payload.update(
+        {
+            "hasTemperatureTelemetry": False,
+            "temperatureReadingCount": 0,
+            "currentProductTemperature": None,
+            "averageProductTemperature": None,
+            "minimumProductTemperature": None,
+            "maximumProductTemperature": None,
+            "airTemperature": None,
+            "humidity": None,
+            "timeAboveLimitMinutes": 0,
+            "temperatureViolationCount": 0,
+        }
+    )
+    response = client.post("/predict", json=payload, headers=auth_headers())
+    assert response.status_code == 200
+    assert "Collect product-temperature telemetry" in response.json()["recommendation"]
+
+
+def test_temperature_availability_metadata_must_match_statistics() -> None:
+    """Contradictory telemetry metadata must not reach the model."""
+    payload = valid_payload()
+    payload["hasTemperatureTelemetry"] = False
+    response = client.post("/predict", json=payload, headers=auth_headers())
+    assert response.status_code == 422
+    assert "must be empty or zero" in response.text
+
+
 @pytest.mark.parametrize(
     "headers",
     [None, {"Authorization": "Bearer wrong-token"}],
@@ -143,10 +212,22 @@ def test_prediction_requires_valid_bearer_token(
     assert response.json() == {"detail": "Unauthorized"}
 
 
+def test_missing_service_configuration_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing deployment secret should fail clearly instead of raising KeyError."""
+    monkeypatch.delenv("AI_SERVICE_TOKEN")
+    response = client.post("/predict", json=valid_payload(), headers=auth_headers())
+    assert response.status_code == 503
+    assert response.json() == {"detail": "AI service is not configured"}
+
+
 def test_training_report_has_no_batch_leakage() -> None:
     """Protect the two most important saved-model evaluation requirements."""
     metrics = json.loads((BASE_DIR / "model_metrics.json").read_text(encoding="utf-8"))
     assert metrics["dataset_is_synthetic"] is True
     assert metrics["decision_support_only"] is True
     assert metrics["batch_overlap_count"] == 0
+    assert metrics["data_audit"]["batch_id_source"] == "dataset"
+    assert metrics["data_audit"]["unique_batches"] < metrics["data_audit"]["rows_used"]
     assert metrics["classification_report"]["HIGH"]["recall"] >= 0.80

@@ -12,20 +12,21 @@ This repository trains a Random Forest classifier from prototype fish cold-chain
 
 ## Current model results
 
-The saved `spoilage-v1` model was evaluated on a group-held-out test set.
+The saved `spoilage-v2` model was evaluated on a group-held-out test set.
 
 | Metric | Result |
 |---|---:|
-| Rows originally loaded | 2,000 |
-| Contradictory rows rejected | 508 |
-| Rows used | 1,492 |
-| Training rows | 1,193 |
-| Test rows | 299 |
+| Rows originally loaded | 4,000 |
+| Contradictory rows rejected | 0 |
+| Rows used | 4,000 |
+| Unique synthetic batches | 1,000 |
+| Training rows / batches | 3,200 / 800 |
+| Test rows / batches | 800 / 200 |
 | Train/test batch overlap | 0 |
-| Test accuracy | 83.95% |
-| HIGH-risk precision | 97.00% |
-| HIGH-risk recall | 91.51% |
-| HIGH-risk F1-score | 94.17% |
+| Test accuracy | 86.88% |
+| HIGH-risk precision | 92.57% |
+| HIGH-risk recall | 92.26% |
+| HIGH-risk F1-score | 92.41% |
 
 The complete evaluation is stored in [`model_metrics.json`](model_metrics.json), and the visual result is stored in [`confusion_matrix.png`](confusion_matrix.png).
 
@@ -74,6 +75,7 @@ Risk level + confidence + probabilities + recommendation
 
 | File | Purpose |
 |---|---|
+| `generate_dataset.py` | Reproducibly generates grouped synthetic prototype snapshots |
 | `fish_spoilage_dataset.csv` | Synthetic model-training data |
 | `train_model.py` | Validates data, trains the model, evaluates it, and saves artifacts |
 | `predict_api.py` | Loads the artifact and exposes the FastAPI endpoints |
@@ -127,6 +129,12 @@ uv run --python 3.12 --with-requirements requirements.txt python train_model.py
 
 ## Training the model
 
+Regenerate the deterministic synthetic prototype dataset when its rules change:
+
+```powershell
+python generate_dataset.py
+```
+
 Run:
 
 ```powershell
@@ -147,7 +155,7 @@ Training performs the following operations:
 4. Converts numeric columns safely.
 5. Rejects impossible values and relationships.
 6. Removes exact duplicate samples.
-7. Creates temporary unique synthetic batch IDs when no real `batch_id` exists.
+7. Requires and validates stable batch IDs (with a fallback only for legacy CSVs).
 8. Creates a group-aware training and test split.
 9. Builds group-aware probability-calibration folds.
 10. Fits preprocessing and the Random Forest together.
@@ -166,17 +174,24 @@ The current CSV requires these columns:
 
 | Column | Type | Meaning |
 |---|---|---|
+| `batch_id` | Text | Stable batch group used to prevent train/test leakage |
 | `fish_species` | Text | Fish category known to the model |
+| `has_temperature_telemetry` | Boolean | Whether product-temperature statistics are available |
+| `temperature_reading_count` | Integer | Number of product-temperature readings |
 | `current_temperature` | Number | Current product temperature in degrees Celsius |
 | `average_temperature` | Number | Average product temperature in degrees Celsius |
+| `minimum_temperature` | Number | Lowest product temperature in degrees Celsius |
 | `maximum_temperature` | Number | Highest product temperature in degrees Celsius |
+| `air_temperature` | Number | Latest container air temperature in degrees Celsius |
 | `storage_duration_hours` | Number | Total storage duration in hours |
 | `humidity` | Number | Relative humidity percentage |
 | `transport_duration_hours` | Number | Transport duration in hours |
+| `time_above_limit_minutes` | Number | Total measured time above the configured temperature limit |
 | `temperature_violation_count` | Integer | Number of recorded temperature violations |
+| `time_since_catch_hours` | Number | Time elapsed since the earliest linked catch |
 | `spoilage_risk` | Text | Target label: `LOW`, `MEDIUM`, or `HIGH` |
 
-A real dataset should also contain a `batch_id` column. Multiple readings from the same physical fish batch must have the same batch ID. The splitter then keeps the complete batch on only one side of the train/test boundary.
+Multiple snapshots from the same physical fish batch must have the same batch ID. The splitter keeps the complete batch on only one side of the train/test boundary.
 
 ## Dataset validation
 
@@ -185,10 +200,15 @@ The training script rejects records when:
 - A target label is missing or is not `LOW`, `MEDIUM`, or `HIGH`.
 - The fish species is missing.
 - A numeric value falls outside the broad prototype engineering limits.
-- `temperature_violation_count` is not a whole number.
+- A reading or violation count is not a whole number.
 - Current product temperature is greater than maximum product temperature.
 - Average product temperature is greater than maximum product temperature.
+- Minimum product temperature is greater than current or average temperature.
 - Transport duration is greater than storage duration.
+- Storage duration is greater than time since catch.
+- Time above the limit exceeds the total storage duration.
+- Telemetry availability contradicts its statistics or reading count.
+- Violation count exceeds reading count.
 
 Missing feature values are not rejected. They are imputed inside the model pipeline using the most frequent species or numeric training median.
 
@@ -230,7 +250,7 @@ Example response:
 ```json
 {
   "status": "AI service running",
-  "modelVersion": "spoilage-v1",
+  "modelVersion": "spoilage-v2",
   "datasetType": "synthetic prototype",
   "decisionSupportOnly": true
 }
@@ -283,7 +303,7 @@ Example response from the current model:
     "HIGH": 0.05
   },
   "recommendation": "Inspect the batch and maintain temperature below 4°C.",
-  "modelVersion": "spoilage-v1"
+  "modelVersion": "spoilage-v2"
 }
 ```
 
@@ -296,19 +316,19 @@ Probabilities are rounded to two decimal places and adjusted for rounding so the
 | `fishSpecies` | 1-100 characters | Yes | Fish species name |
 | `currentProductTemperature` | -5 to 40°C | Yes | Latest product-sensor reading |
 | `averageProductTemperature` | -5 to 40°C | Yes | Average product temperature |
-| `minimumProductTemperature` | -10 to 40°C | No | Minimum product temperature; currently validation/context only |
+| `minimumProductTemperature` | -10 to 40°C or `null` | Yes | Minimum product temperature |
 | `maximumProductTemperature` | -5 to 50°C | Yes | Maximum product temperature |
-| `airTemperature` | -10 to 50°C | No | Box air temperature; currently validation/context only |
-| `humidity` | 0 to 100% | Yes | Relative humidity |
+| `airTemperature` | -10 to 50°C or `null` | Yes | Box air temperature |
+| `humidity` | 0 to 100% or `null` | Yes | Relative humidity |
 | `storageDurationHours` | 0 to 8,760 | Yes | Total storage duration |
 | `transportDurationHours` | 0 to 720 | Yes | Transport duration |
-| `timeAboveLimitMinutes` | 0 to 525,600 | No | Total time over the temperature limit; currently validation/context only |
+| `timeAboveLimitMinutes` | 0 to 525,600 | Yes | Total time over the temperature limit |
 | `temperatureViolationCount` | 0 to 10,000 | Yes | Count of temperature violations |
-| `timeSinceCatchHours` | 0 to 8,760 | No | Time elapsed since catch; currently validation/context only |
-| `hasTemperatureTelemetry` | `true`, `false`, or `null` | No | Whether temperature telemetry is available |
-| `temperatureReadingCount` | Integer or `null` | No | Number of available temperature readings |
+| `timeSinceCatchHours` | 0 to 8,760 | Yes | Time elapsed since catch |
+| `hasTemperatureTelemetry` | `true` or `false` | Yes | Whether temperature telemetry is available |
+| `temperatureReadingCount` | 0 to 1,000,000 | Yes | Number of available temperature readings |
 
-The fields marked **No** are accepted and validated by the API but are not yet model features because the current CSV does not contain matching training columns. They must not be described as influencing the prediction until real labelled values are collected and the model is retrained.
+Product-temperature summary fields may be `null` only when `hasTemperatureTelemetry` is `false`. Air temperature and humidity may be `null`; the saved preprocessing pipeline imputes those missing values.
 
 ## Cross-field request validation
 
@@ -319,6 +339,8 @@ FastAPI rejects a request with HTTP `422` when:
 - Transport duration is greater than storage duration.
 - Storage duration is greater than time since catch.
 - Time above limit is longer than the complete storage duration.
+- Telemetry availability, reading count, and temperature statistics contradict one another.
+- Temperature violations exceed the number of readings.
 - A numeric field is infinite or `NaN`.
 - An unexpected extra field is supplied.
 
@@ -380,9 +402,9 @@ response.raise_for_status()
 print(response.json())
 ```
 
-## Spring Boot integration
+## FishTrace Laravel integration
 
-The Spring Boot backend should:
+The FishTrace Laravel backend should:
 
 1. Calculate summary values from stored IoT readings.
 2. Send the JSON request to `POST /predict` with the shared bearer token in the
@@ -392,7 +414,7 @@ The Spring Boot backend should:
 5. Generate an alert when `riskLevel` is `HIGH`.
 6. Never use this response as automatic food-safety certification.
 
-For Docker Compose, the Spring service should call the FastAPI service by its Compose service name, for example `http://ai-service:8000/predict`, rather than `localhost`.
+In production, FishTrace calls the deployed HTTPS base URL and appends `/predict`. Firebase is only the real-time telemetry buffer; Laravel imports validated readings into MySQL before aggregating these model features.
 
 ## Running tests
 
@@ -405,7 +427,7 @@ pytest -q test_predict_api.py
 Or with `uv`:
 
 ```powershell
-uv run --python 3.12 --with-requirements requirements.txt pytest -q test_predict_api.py
+uv run --python 3.12 --with-requirements requirements-dev.txt pytest -q test_predict_api.py
 ```
 
 The tests cover:
@@ -421,6 +443,8 @@ The tests cover:
 - Contradictory elapsed times.
 - Unknown species.
 - Unexpected fields.
+- Missing product-temperature telemetry.
+- Contradictory telemetry availability metadata.
 - Batch leakage and HIGH-risk recall in the saved metrics.
 
 ## Model design
@@ -444,19 +468,18 @@ The current held-out confusion matrix is:
 
 | True / Predicted | LOW | MEDIUM | HIGH |
 |---|---:|---:|---:|
-| LOW | 33 | 28 | 0 |
-| MEDIUM | 8 | 121 | 3 |
-| HIGH | 0 | 9 | 97 |
+| LOW | 197 | 36 | 0 |
+| MEDIUM | 24 | 224 | 22 |
+| HIGH | 0 | 23 | 274 |
 
-The model missed nine HIGH-risk samples by predicting MEDIUM, but none were predicted LOW.
+The model missed 23 HIGH-risk samples by predicting MEDIUM, but none were predicted LOW.
 
 ## Limitations
 
 - The dataset and labels are AI-generated synthetic data.
 - Synthetic performance does not prove performance on real fish batches.
-- The current file contains one synthetic sample per generated batch ID.
+- The current file contains four synthetic time snapshots for each generated batch.
 - Yellowfin Tuna is mapped to Tuna rather than learned independently.
-- Minimum temperature, air temperature, time above limit, and time since catch are not current model features.
 - The temperature limits in the code are engineering validation ranges, not official safety thresholds.
 - Prediction probabilities are calibrated only against synthetic data.
 - The model does not use odour, texture, eye condition, gill colour, laboratory testing, or expert inspection results.
@@ -464,13 +487,12 @@ The model missed nine HIGH-risk samples by predicting MEDIUM, but none were pred
 ## Recommended next steps
 
 1. Collect real sensor readings and expert-labelled inspection outcomes.
-2. Store a real `batch_id` with every observation.
-3. Add the four new telemetry fields to the training dataset.
-4. Define species-specific handling with a fisheries or food-science supervisor.
-5. Retrain and evaluate on batches from different trips, dates, boats, and routes.
-6. Compare the Random Forest against a simple rule-based baseline.
-7. Recheck probability calibration on independent real data.
-8. Monitor model drift after deployment.
+2. Preserve the real `batch_id` with every training observation.
+3. Define species-specific handling with a fisheries or food-science supervisor.
+4. Retrain and evaluate on batches from different trips, dates, boats, and routes.
+5. Compare the Random Forest against a simple rule-based baseline.
+6. Recheck probability calibration on independent real data.
+7. Monitor model drift after deployment.
 
 ## Troubleshooting
 
