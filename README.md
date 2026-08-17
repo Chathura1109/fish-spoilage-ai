@@ -237,6 +237,119 @@ Available URLs:
 | `http://127.0.0.1:8000/redoc` | ReDoc documentation |
 | `http://127.0.0.1:8000/openapi.json` | OpenAPI schema |
 
+## Connecting to the hosted Vercel API
+
+The ML API is already hosted on Vercel. Other team members do **not** need a
+Vercel account, the Vercel CLI, this Python environment, or a separate
+deployment. They only need connection details from the team member who manages
+the hosted service:
+
+```text
+VERCEL_BASE_URL=https://fish-spoilage-ai.vercel.app
+AI_SERVICE_TOKEN=the-shared-backend-service-token
+```
+
+Share the real token through a private channel. Do not commit it to Git, include
+it in screenshots, send it to a mobile application, or store it in IoT firmware.
+
+### Backend team-member setup
+
+1. Obtain the production `VERCEL_BASE_URL` and `AI_SERVICE_TOKEN` from the Vercel
+   project owner.
+2. Open the backend project's local `.env` file.
+3. Add the hosted base URL and token using the environment-variable names
+   expected by that backend. For a Laravel backend, a recommended configuration
+   is:
+
+   ```dotenv
+   AI_SERVICE_URL=https://fish-spoilage-ai.vercel.app
+   AI_SERVICE_TOKEN=replace-with-the-private-shared-token
+   ```
+
+4. Ensure the backend appends `/predict` only once. The final prediction URL
+   must look like:
+
+   ```text
+   https://fish-spoilage-ai.vercel.app/predict
+   ```
+
+5. If Laravel configuration was already cached, refresh it and restart the
+   backend process:
+
+   ```powershell
+   php artisan config:clear
+   ```
+
+6. Confirm that the backend sends these HTTP headers:
+
+   ```http
+   Content-Type: application/json
+   Authorization: Bearer the-same-value-as-AI_SERVICE_TOKEN
+   ```
+
+7. Test the hosted health endpoint before testing a prediction:
+
+   ```powershell
+   Invoke-RestMethod -Method Get `
+     -Uri "https://fish-spoilage-ai.vercel.app/"
+   ```
+
+   A successful response contains `"status": "AI service running"`.
+
+8. Send the complete JSON body shown in the **Prediction endpoint** section to
+   `/predict`. A successful request returns HTTP `200` and the risk prediction.
+
+The variable names in the example are recommendations. If the separate backend
+repository uses different configuration names, use the names defined in that
+backend's code rather than creating unused variables.
+
+### IoT team-member setup
+
+The IoT device should not call the Vercel `/predict` endpoint directly. It
+normally has only raw sensor readings, while the ML API requires aggregated
+values including current, average, minimum, and maximum product temperature,
+reading count, violation count, and duration values.
+
+The intended connection is:
+
+```text
+IoT device
+    -> sends raw sensor readings to Firebase or the Laravel backend
+Laravel backend
+    -> validates and stores the readings
+    -> calculates all required aggregate values
+    -> calls the hosted Vercel /predict endpoint
+Vercel ML API
+    -> returns the prediction to the Laravel backend
+```
+
+The IoT team member therefore needs the Firebase or Laravel telemetry endpoint
+and its device credentials—not `AI_SERVICE_TOKEN`. Test the connection in this
+order:
+
+1. Confirm the device has Wi-Fi access.
+2. Confirm raw readings arrive in Firebase or the Laravel backend.
+3. Confirm the backend can retrieve and aggregate those readings.
+4. Confirm the backend calls the hosted `/predict` URL.
+5. Confirm the prediction is stored or returned to the application.
+
+### Hosted API status codes
+
+| Status | Meaning in this project |
+|---:|---|
+| `200` | The hosted service accepted the request and returned a prediction |
+| `401` | The backend omitted the bearer token or used the wrong token |
+| `404` | The hosted domain or `/predict` path is incorrect |
+| `405` | `/predict` was called with a method other than `POST` |
+| `422` | The backend JSON is incomplete, incorrectly named, or physically inconsistent |
+| `500` | The hosted function raised an unexpected runtime error |
+| `503` | The hosted service token or required model artifact is unavailable |
+
+For `422`, print or record the complete response body. FastAPI's `detail` list
+identifies the exact invalid field. A body containing only raw fields such as
+`temperature`, `humidity`, or `deviceId` cannot be sent directly to `/predict`.
+The backend must construct the complete request documented below.
+
 ## Health-check endpoint
 
 Request:
